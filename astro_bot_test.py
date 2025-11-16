@@ -470,13 +470,10 @@ def get_main_menu_keyboard():
     keyboard.row(buttons[2], buttons[3])
     return keyboard
 
-def get_gender_keyboard(context=None):
-    """Клавиатура выбора пола"""
+def get_gender_keyboard():
+    """Клавиатура выбора пола (упрощенная версия)"""
     keyboard = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    if context == 'compatibility_target':
-        buttons = ['👨 С мужчиной', '👩 С женщиной', '🔙 Назад']
-    else:
-        buttons = ['👨 Мужчина', '👩 Женщина', '🔙 Назад']
+    buttons = ['👨 Мужчина', '👩 Женщина', '🔙 Назад']
     keyboard.row(buttons[0], buttons[1])
     keyboard.row(buttons[2])
     return keyboard
@@ -586,43 +583,18 @@ def handle_gender_selection(message: telebot.types.Message) -> None:
 
     elif mode == 'compatibility':
         if step == 'first_gender':
+            # Автоматически определяем противоположный пол для партнера
+            partner_gender = 'женщина' if gender == 'мужчина' else 'мужчина'
+
             user_data[chat_id].update({
                 'first_gender': gender,
+                'second_gender': partner_gender,  # Автоматически устанавливаем противоположный пол
                 'step': 'first_zodiac'
             })
+
             bot.send_message(chat_id, f"✨ <b>Теперь выбери свой знак зодиака:</b>",
                             reply_markup=get_zodiac_keyboard(),
                             parse_mode='HTML')
-
-        elif step == 'second_gender':
-            user_data[chat_id].update({
-                'second_gender': gender,
-                'step': 'second_zodiac'
-            })
-            bot.send_message(chat_id, f"✨ <b>Теперь выбери знак зодиака партнера:</b>",
-                            reply_markup=get_zodiac_keyboard(),
-                            parse_mode='HTML')
-
-@bot.message_handler(func=lambda message: message.text in ['👨 С мужчиной', '👩 С женщиной'])
-@logger.catch
-def handle_compatibility_target(message: telebot.types.Message) -> None:
-    """Обработчик выбора цели совместимости"""
-    chat_id = message.chat.id
-
-    if chat_id not in user_data or user_data[chat_id].get('mode') != 'compatibility':
-        bot.send_message(chat_id, "Пожалуйста, начните с выбора 'Проверить совместимость'")
-        return
-
-    gender = 'мужчина' if message.text == '👨 С мужчиной' else 'женщина'
-
-    user_data[chat_id].update({
-        'second_gender': gender,
-        'step': 'second_zodiac'
-    })
-
-    bot.send_message(chat_id, f"✨ <b>Теперь выбери знак зодиака партнера:</b>",
-                    reply_markup=get_zodiac_keyboard(),
-                    parse_mode='HTML')
 
 @bot.message_handler(func=lambda message: any(sign_data['name'] in message.text for sign_data in ZODIAC_SIGNS.values()))
 @logger.catch
@@ -638,6 +610,7 @@ def handle_zodiac_selection(message: telebot.types.Message) -> None:
             selected_sign = sign_id
             break
 
+    # Ранняя проверка и возврат если знак не найден
     if not selected_sign:
         bot.send_message(chat_id, "Пожалуйста, выбери знак зодиака из списка.")
         return
@@ -673,10 +646,12 @@ def handle_zodiac_selection(message: telebot.types.Message) -> None:
         if step == 'first_zodiac':
             user_data[chat_id].update({
                 'first_sign': selected_sign,
-                'step': 'second_gender'
+                'step': 'second_zodiac'
             })
-            bot.send_message(chat_id, f"💑 <b>С кем ты хочешь проверить совместимость?</b>",
-                            reply_markup=get_gender_keyboard('compatibility_target'),
+
+            gender_text = "партнерши" if user_data[chat_id]['second_gender'] == 'женщина' else "партнера"
+            bot.send_message(chat_id, f"✨ <b>Теперь выбери знак зодиака {gender_text}:</b>",
+                            reply_markup=get_zodiac_keyboard(),
                             parse_mode='HTML')
 
         elif step == 'second_zodiac':
@@ -719,6 +694,31 @@ def handle_zodiac_selection(message: telebot.types.Message) -> None:
                 bot.send_message(chat_id,
                                 "❌ Извините, произошла ошибка при анализе совместимости. Попробуйте позже.",
                                 reply_markup=get_main_menu_keyboard())
+
+def split_long_message(text, max_length=4000):
+    """Разделяет длинное сообщение на части"""
+    if len(text) <= max_length:
+        return [text]
+
+    parts = []
+    while text:
+        if len(text) <= max_length:
+            parts.append(text)
+            break
+
+        # Находим последний перенос строки в пределах лимита
+        split_pos = text.rfind('\n', 0, max_length)
+        if split_pos == -1:
+            # Если нет переносов, разбиваем по предложениям
+            split_pos = text.rfind('. ', 0, max_length)
+            if split_pos == -1:
+                # Если нет точек, просто обрезаем
+                split_pos = max_length
+
+        parts.append(text[:split_pos + 1])
+        text = text[split_pos + 1:]
+
+    return parts
 
 @bot.message_handler(func=lambda message: any(period in message.text for period in [
     'Сегодня (', 'Завтра (', 'Неделя', 'Месяц (', 'Год ('
@@ -776,18 +776,32 @@ def handle_period_selection(message: telebot.types.Message) -> None:
 
         gender_text = "мужчины" if gender == 'мужчина' else "женщины"
 
-        response = f"""
+        header = f"""
 {zodiac_data['emoji']} <b>ПЕРСОНАЛИЗИРОВАННЫЙ ГОРОСКОП ДЛЯ {gender_text.upper()}</b> {zodiac_data['emoji']}
 📅 <b>Период:</b> {period_display} ({result['period_dates']})
 👤 <b>Знак:</b> {zodiac_data['name']} | <b>Пол:</b> {gender}
 
-{result['horoscope']}
+"""
 
-✨ <i>Пусть звезды благоволят вам!</i>"""
+        footer = "\n\n✨ <i>Пусть звезды благоволят вам!</i>"
 
-        bot.send_message(chat_id, response,
-                        reply_markup=get_main_menu_keyboard(),
-                        parse_mode='HTML')
+        # Формируем полное сообщение
+        full_message = header + result['horoscope'] + footer
+
+        # Разделяем длинные сообщения
+        message_parts = split_long_message(full_message)
+
+        # Отправляем первую часть с клавиатурой, остальные - без
+        for i, part in enumerate(message_parts):
+            if i == 0:
+                # Первая часть с клавиатурой
+                bot.send_message(chat_id, part,
+                                reply_markup=get_main_menu_keyboard(),
+                                parse_mode='HTML')
+            else:
+                # Последующие части без клавиатуры
+                bot.send_message(chat_id, part,
+                                parse_mode='HTML')
     else:
         bot.send_message(chat_id,
                         "❌ Извините, произошла ошибка при генерации гороскопа. Попробуйте позже.",
