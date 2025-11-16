@@ -808,10 +808,8 @@ def zodiacs_command(message: telebot.types.Message) -> None:
                     reply_markup=get_main_menu_keyboard(),
                     parse_mode='HTML')
 
-@bot.message_handler(func=lambda message: message.text == 'ℹ️ Помощь')
-@logger.catch
-def help_command(message: telebot.types.Message) -> None:
-    """Команда помощи"""
+def send_help_message(chat_id):
+    """Общая функция для отправки справки"""
     help_text = """
 🤖 <b>AstroBot - Помощник по гороскопам</b>
 
@@ -836,9 +834,21 @@ def help_command(message: telebot.types.Message) -> None:
 /start - Главное меню
 /help - Эта справка
 """
-    bot.send_message(message.chat.id, help_text,
+    bot.send_message(chat_id, help_text,
                     reply_markup=get_main_menu_keyboard(),
                     parse_mode='HTML')
+
+@bot.message_handler(commands=['help'])
+@logger.catch
+def help_command(message: telebot.types.Message) -> None:
+    """Обработчик команды /help"""
+    send_help_message(message.chat.id)
+
+@bot.message_handler(func=lambda message: message.text == 'ℹ️ Помощь')
+@logger.catch
+def help_button(message: telebot.types.Message) -> None:
+    """Обработчик кнопки помощи"""
+    send_help_message(message.chat.id)
 
 @bot.message_handler(func=lambda message: message.text == '🔙 Назад')
 @logger.catch
